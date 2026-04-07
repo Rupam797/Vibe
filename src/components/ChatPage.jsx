@@ -71,9 +71,14 @@ const ChatPage = () => {
   }, [input]);
 
   useEffect(() => {
+    let reconnectTimer = null;
+
     const connectWebSocket = () => {
-      const sock = new SockJS(`${baseURL}/chat`);
+      const sock = new SockJS(`${baseURL}/chat`, null, {
+        transports: ['websocket', 'xhr-streaming', 'xhr-polling'],
+      });
       const client = Stomp.over(sock);
+      client.debug = () => {}; // Silence STOMP debug logs in production
 
       client.connect({}, () => {
         setStompClient(client);
@@ -82,12 +87,20 @@ const ChatPage = () => {
           const newMessage = JSON.parse(message.body);
           setMessages((prev) => [...prev, newMessage]);
         });
+      }, (error) => {
+        console.error("WebSocket connection error:", error);
+        toast.error("Connection lost. Retrying...");
+        reconnectTimer = setTimeout(connectWebSocket, 3000);
       });
     };
 
     if (connected) {
       connectWebSocket();
     }
+
+    return () => {
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+    };
   }, [connected, roomId]);
 
   const sendMessage = () => {
