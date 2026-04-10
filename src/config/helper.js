@@ -1,20 +1,41 @@
-export function timeAgo(date) {
+
+export function timeAgo(dateString) {
+  if (!dateString) return "";
+  
+  const date = new Date(dateString);
   const now = new Date();
-  const past = new Date(date);
-  const secondsAgo = Math.floor((now - past) / 1000);
+  
+  const secondsAgo = Math.floor((now - date) / 1000);
+  
+  if (secondsAgo < 10) {
+    return "just now";
+  } else if (secondsAgo < 60) {
+    const tens = Math.floor(secondsAgo / 10) * 10;
+    return `${tens} sec ago`;
+  }
+  
+  // Clone 'now' to check for yesterday without mutating 'now'
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  
+  const isToday = date.toDateString() === now.toDateString();
+  const isYesterday = date.toDateString() === yesterday.toDateString();
 
-  if (secondsAgo < 60) return `${secondsAgo} seconds ago`;
-  const minutesAgo = Math.floor(secondsAgo / 60);
-  if (minutesAgo < 60) return `${minutesAgo} minutes ago`;
-  const hoursAgo = Math.floor(minutesAgo / 60);
-  if (hoursAgo < 24) return `${hoursAgo} hours ago`;
-  const daysAgo = Math.floor(hoursAgo / 24);
-  if (daysAgo < 30) return `${daysAgo} days ago`;
-  const monthsAgo = Math.floor(daysAgo / 30);
-  if (monthsAgo < 12) return `${monthsAgo} months ago`;
-  const yearsAgo = Math.floor(monthsAgo / 12);
-  return `${yearsAgo} years ago`;
+  const timeString = date.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+
+  if (isToday) {
+    return timeString; // e.g., "10:45 AM"
+  } else if (isYesterday) {
+    return `Yesterday, ${timeString}`; // e.g., "Yesterday, 10:45 AM"
+  } else {
+    const dateStr = date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+    });
+    return `${dateStr}, ${timeString}`; // e.g., "Oct 24, 10:45 AM"
+  }
 }
-
-// Example usage
-console.log(timeAgo("2023-12-01T14:00:00Z")); // Output depends on the current time

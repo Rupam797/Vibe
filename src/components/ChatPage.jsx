@@ -21,22 +21,31 @@ const ChatPage = () => {
     setConnected, setRoomId, setCurrentUser,
   } = useChatContext();
 
-  const navigate  = useNavigate();
-  const [messages, setMessages]               = useState([]);
-  const [input, setInput]                     = useState("");
-  const [isTyping, setIsTyping]               = useState(false);
-  const [onlineCount, setOnlineCount]         = useState(1);
+  const navigate = useNavigate();
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
+  const [onlineCount, setOnlineCount] = useState(1);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [dark, setDark]                       = useState(true);
-  const [wsStatus, setWsStatus]               = useState("connecting");
-  const [sending, setSending]                 = useState(false);
-  const [copied, setCopied]                   = useState(false);
+  const [dark, setDark] = useState(true);
+  const [wsStatus, setWsStatus] = useState("connecting");
+  const [sending, setSending] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [tick, setTick] = useState(0);
 
-  const inputRef        = useRef(null);
-  const chatBoxRef      = useRef(null);
-  const stompRef        = useRef(null);
-  const emojiPickerRef  = useRef(null);
+  const inputRef = useRef(null);
+  const chatBoxRef = useRef(null);
+  const stompRef = useRef(null);
+  const emojiPickerRef = useRef(null);
   const scrollAnchorRef = useRef(null);
+
+  /* ── real-time tick ── */
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTick(t => t + 1);
+    }, 10000);
+    return () => clearInterval(interval);
+  }, []);
 
   /* ── theme ── */
   useEffect(() => {
@@ -59,20 +68,11 @@ const ChatPage = () => {
     if (connected) load();
   }, [connected, roomId]);
 
-  /* ── auto-scroll ──
-     Problem: WebSocket messages trigger a React state update → re-render →
-     DOM paint, but a single rAF fires *before* the browser has committed the
-     new bubble's height, so scrollHeight is still the old value.
-     Fix: double-rAF (second frame fires after layout/paint) + a 120 ms
-     fallback setTimeout to catch any late image/emoji layout shifts.
-  ── */
+  /* ── auto-scroll ── */
   const scrollToBottom = () => {
-    // Primary: scrollIntoView on an anchor div — most reliable method,
-    // used by Discord/WhatsApp. Works even when scrollHeight hasn't updated yet.
     if (scrollAnchorRef.current) {
       scrollAnchorRef.current.scrollIntoView({ block: "end" });
     }
-    // Fallback: direct scrollTop assignment after layout
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         if (chatBoxRef.current)
@@ -124,9 +124,9 @@ const ChatPage = () => {
 
     const connect = () => {
       setWsStatus("connecting");
-      const sock   = new SockJS(`${baseURL}/chat`, null, { transports: ["websocket", "xhr-streaming", "xhr-polling"] });
+      const sock = new SockJS(`${baseURL}/chat`, null, { transports: ["websocket", "xhr-streaming", "xhr-polling"] });
       const client = Stomp.over(sock);
-      client.debug  = () => {};
+      client.debug = () => { };
 
       client.connect({}, () => {
         stompRef.current = client;
@@ -142,6 +142,10 @@ const ChatPage = () => {
           const count = JSON.parse(msg.body);
           setOnlineCount(count);
         });
+
+        // send join event
+        const msg = { sender: currentUser, content: "JOIN", roomId };
+        client.send(`/app/joinRoom/${roomId}`, {}, JSON.stringify(msg));
 
       }, (err) => {
         console.error(err);
@@ -163,7 +167,6 @@ const ChatPage = () => {
     const msg = { sender: currentUser, content: input, roomId };
     client.send(`/app/sendMessage/${roomId}`, {}, JSON.stringify(msg));
     setInput("");
-    // Reset textarea height
     if (inputRef.current) {
       inputRef.current.style.height = "auto";
     }
@@ -200,8 +203,8 @@ const ChatPage = () => {
   const StatusBadge = () => {
     const map = {
       connecting: { color: "text-amber-400", dot: "bg-amber-400", label: "Connecting…" },
-      live:       { color: "text-emerald-400", dot: "bg-emerald-400", label: "Live" },
-      lost:       { color: "text-red-400", dot: "bg-red-400", label: "Reconnecting…" },
+      live: { color: "text-emerald-400", dot: "bg-emerald-400", label: "Live" },
+      lost: { color: "text-red-400", dot: "bg-red-400", label: "Reconnecting…" },
     };
     const s = map[wsStatus];
     return (
@@ -219,10 +222,9 @@ const ChatPage = () => {
         * { font-family: 'DM Sans', sans-serif; box-sizing: border-box; }
         .syne { font-family: 'Syne', sans-serif; }
 
-        /* ── FIX: Prevent browser/OS chrome from affecting layout on mobile ── */
         html, body, #root {
           height: 100%;
-          height: 100dvh; /* dynamic viewport height — accounts for mobile address bar */
+          height: 100dvh;
           overflow: hidden;
         }
 
@@ -247,7 +249,6 @@ const ChatPage = () => {
         .chat-scroll::-webkit-scrollbar-track { background: transparent; }
         .chat-scroll::-webkit-scrollbar-thumb { background: rgba(99,102,241,.3); border-radius: 99px; }
         .dark .chat-scroll::-webkit-scrollbar-thumb { background: rgba(99,102,241,.25); }
-        /* Firefox */
         .chat-scroll { scrollbar-width: thin; scrollbar-color: rgba(99,102,241,.3) transparent; }
 
         /* message pop-in */
@@ -285,7 +286,6 @@ const ChatPage = () => {
         /* emoji picker */
         em-emoji-picker { --border-radius: 16px; --shadow: 0 16px 40px rgba(0,0,0,.25); }
 
-        /* ── FIX: Emoji picker responsive positioning on mobile ── */
         .emoji-picker-wrapper {
           position: absolute;
           bottom: calc(100% + 8px);
@@ -293,7 +293,6 @@ const ChatPage = () => {
           z-index: 100;
           max-width: calc(100vw - 32px);
         }
-        /* On very small screens, anchor to left edge of viewport */
         @media (max-width: 400px) {
           .emoji-picker-wrapper {
             right: auto;
@@ -302,22 +301,29 @@ const ChatPage = () => {
           }
         }
 
-        /* ── FIX: Prevent iOS bounce/overscroll from breaking layout ── */
         .chat-scroll {
           -webkit-overflow-scrolling: touch;
           overscroll-behavior: contain;
         }
 
-        /* Tap highlight removal for mobile buttons */
         button { -webkit-tap-highlight-color: transparent; }
+
+        /* ── USER BUBBLE DISTINCTION ──
+           Each sender gets a colored left border + tinted bg derived from
+           their deterministic avatarColor(). Applied via inline CSS vars:
+           --uc  = hsl(...) user color
+           --uc2 = same color at 8% opacity for the bg tint
+        ── */
+        .bubble-other {
+          border-left: 3px solid var(--uc);
+          background-color: var(--uc2) !important;
+        }
+
+        .sender-label {
+          color: var(--uc);
+        }
       `}</style>
 
-      {/*
-        ── ROOT CONTAINER ──
-        Use 100dvh so the layout accounts for the mobile address bar
-        (avoids the classic "content hidden behind browser chrome" bug).
-        overflow-hidden prevents double scrollbars.
-      */}
       <div
         className="flex flex-col bg-zinc-50 dark:bg-zinc-950 transition-colors duration-300 overflow-hidden"
         style={{ height: "100dvh" }}
@@ -341,7 +347,6 @@ const ChatPage = () => {
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <span className="syne font-bold text-sm sm:text-base text-zinc-900 dark:text-zinc-50 leading-none">MyVibe</span>
 
-                  {/* Room ID + Copy — always visible, truncated on mobile */}
                   <div className="flex items-center gap-1">
                     <span className="flex items-center gap-0.5 text-xs text-zinc-500 dark:text-zinc-400 truncate max-w-[80px] sm:max-w-[160px]">
                       <Hash size={11} className="flex-shrink-0" />
@@ -376,7 +381,7 @@ const ChatPage = () => {
                   {isTyping && (
                     <span className="hidden sm:flex items-center gap-1.5 text-xs text-indigo-400">
                       <span className="flex gap-0.5">
-                        {[0,1,2].map(i => <span key={i} className="typing-dot w-1 h-1 rounded-full bg-indigo-400 inline-block" />)}
+                        {[0, 1, 2].map(i => <span key={i} className="typing-dot w-1 h-1 rounded-full bg-indigo-400 inline-block" />)}
                       </span>
                       typing…
                     </span>
@@ -390,8 +395,8 @@ const ChatPage = () => {
 
               {[
                 { icon: Search, label: "Search", show: "hidden sm:flex" },
-                { icon: Phone,  label: "Voice",  show: "hidden sm:flex" },
-                { icon: Video,  label: "Video",  show: "hidden sm:flex" },
+                { icon: Phone, label: "Voice", show: "hidden sm:flex" },
+                { icon: Video, label: "Video", show: "hidden sm:flex" },
               ].map(({ icon: Icon, label, show }) => (
                 <button key={label} title={label}
                   className={`
@@ -419,7 +424,7 @@ const ChatPage = () => {
                 {dark ? <Sun size={16} /> : <Moon size={16} />}
               </button>
 
-              {/* user chip — hidden on mobile to save space */}
+              {/* user chip */}
               <div className="hidden sm:flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 ml-0.5">
                 <div className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0"
                   style={{ background: avatarColor(currentUser) }}>
@@ -446,11 +451,7 @@ const ChatPage = () => {
           </div>
         </header>
 
-        {/* ── MESSAGE AREA ──
-            FIX: min-h-0 is critical — without it, flex children won't shrink
-            below their content size, causing the container to overflow.
-            overflow-y-auto + flex-1 + min-h-0 = correct scrollable region.
-        ── */}
+        {/* ── MESSAGE AREA ── */}
         <main
           ref={chatBoxRef}
           className="flex-1 min-h-0 overflow-y-auto chat-scroll relative px-3 sm:px-6 py-4"
@@ -471,13 +472,42 @@ const ChatPage = () => {
             </div>
           )}
 
-          {/* FIX: Use a wrapper div for spacing instead of space-y-3 on the
-              scrollable container — avoids margin-collapse / scroll glitches */}
           <div className="flex flex-col gap-0.5">
             {messages.map((message, index) => {
+              const isSystem = message.sender === "SYSTEM";
+
+              if (isSystem) {
+                return (
+                  <div key={index} className="flex justify-center mt-3 mb-1 w-full msg-in">
+                    <span className="bg-zinc-200/60 dark:bg-zinc-800/60 px-3 py-1 rounded-full text-[11px] text-zinc-500 dark:text-zinc-400 font-medium tracking-wide">
+                      {message.content}
+                    </span>
+                  </div>
+                );
+              }
+
               const isMe = message.sender === currentUser;
-              const prevSender = index > 0 ? messages[index - 1].sender : null;
+              let prevSender = null;
+              if (index > 0) {
+                for (let i = index - 1; i >= 0; i--) {
+                  if (messages[i].sender !== "SYSTEM") {
+                    prevSender = messages[i].sender;
+                    break;
+                  }
+                }
+              }
               const isGrouped = prevSender === message.sender;
+
+              // ── Per-user color variables ──
+              // avatarColor() returns e.g. "hsl(210, 65%, 55%)"
+              // We inject it as a CSS custom property so the
+              // .bubble-other class can reference it for border + bg tint.
+              const userColor = !isMe ? avatarColor(message.sender) : undefined;
+              // Extract the raw HSL values to build a low-opacity version for the bg
+              // e.g. "hsl(210, 65%, 55%)" → "hsla(210, 65%, 55%, 0.08)"
+              const userColorBg = !isMe && userColor
+                ? userColor.replace("hsl(", "hsla(").replace(")", ", 0.08)")
+                : undefined;
 
               return (
                 <div key={index}
@@ -486,29 +516,42 @@ const ChatPage = () => {
                   {/* Avatar (others) */}
                   {!isMe && (
                     <div className={`flex-shrink-0 mr-2 mt-auto ${isGrouped ? "opacity-0 pointer-events-none" : ""}`}>
-                      <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold"
-                        style={{ background: avatarColor(message.sender) }}>
+                      <div
+                        className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold"
+                        style={{ background: userColor }}
+                      >
                         {message.sender?.charAt(0)?.toUpperCase()}
                       </div>
                     </div>
                   )}
 
-                  {/* FIX: max-w uses % + clamp so bubbles don't overflow on tiny screens */}
                   <div className="group relative" style={{ maxWidth: "min(72%, 420px)" }}>
-                    {/* Sender name */}
+
+                    {/* ── Sender name — tinted to their user color ── */}
                     {!isMe && !isGrouped && (
-                      <span className="text-[11px] font-medium text-zinc-400 dark:text-zinc-500 mb-1 ml-1 block">{message.sender}</span>
+                      <span
+                        className="sender-label text-[11px] font-semibold mb-1 ml-1 block"
+                        style={{ "--uc": userColor }}
+                      >
+                        {message.sender}
+                      </span>
                     )}
 
                     {/* Bubble */}
-                    <div className={`
-                      relative px-3 sm:px-4 py-2.5 text-sm leading-relaxed
-                      ${isMe
-                        ? "bg-indigo-500 text-white rounded-2xl rounded-br-sm shadow-[0_4px_16px_rgba(99,102,241,.3)]"
-                        : "bg-white dark:bg-zinc-800 text-zinc-800 dark:text-zinc-100 border border-zinc-200 dark:border-zinc-700 rounded-2xl rounded-bl-sm shadow-sm"
-                      }
-                    `}>
-                      {/* FIX: overflow-wrap + word-break prevents long URLs/words from overflowing bubble */}
+                    <div
+                      className={`
+                        relative px-3 sm:px-4 py-2.5 text-sm leading-relaxed
+                        ${isMe
+                          ? "bg-indigo-500 text-white rounded-2xl rounded-br-sm shadow-[0_4px_16px_rgba(99,102,241,.3)]"
+                          : "bubble-other text-zinc-800 dark:text-zinc-100 border border-zinc-200 dark:border-zinc-700 rounded-2xl rounded-bl-sm shadow-sm"
+                        }
+                      `}
+                      // Inject CSS vars for the .bubble-other class to consume
+                      style={!isMe ? {
+                        "--uc": userColor,
+                        "--uc2": userColorBg,
+                      } : undefined}
+                    >
                       <p style={{ overflowWrap: "break-word", wordBreak: "break-word" }}>{message.content}</p>
 
                       <div className={`flex items-center gap-1.5 mt-1 ${isMe ? "justify-end" : "justify-start"}`}>
@@ -517,8 +560,8 @@ const ChatPage = () => {
                         </span>
                         {isMe && (
                           <svg width="14" height="9" viewBox="0 0 14 9" fill="none" className="opacity-70">
-                            <path d="M1 4.5L4.5 8L9 1" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                            <path d="M5 4.5L8.5 8L13 1" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                            <path d="M1 4.5L4.5 8L9 1" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                            <path d="M5 4.5L8.5 8L13 1" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                           </svg>
                         )}
                       </div>
@@ -540,7 +583,7 @@ const ChatPage = () => {
             })}
           </div>
 
-          {/* Scroll anchor — scrollIntoView targets this to pin view to bottom */}
+          {/* Scroll anchor */}
           <div ref={scrollAnchorRef} className="h-1 w-full flex-shrink-0" aria-hidden="true" />
         </main>
 
@@ -554,7 +597,7 @@ const ChatPage = () => {
             shadow-lg dark:shadow-[0_8px_32px_rgba(0,0,0,.4)]
             ring-1 ring-inset ring-white/60 dark:ring-white/[.03]
           ">
-            {/* Emoji picker — responsive wrapper */}
+            {/* Emoji picker */}
             {showEmojiPicker && (
               <div ref={emojiPickerRef} className="emoji-picker-wrapper">
                 <Picker
@@ -564,7 +607,6 @@ const ChatPage = () => {
                     setInput((p) => p + emoji.native);
                     inputRef.current?.focus();
                   }}
-                  // Smaller size on mobile
                   perLine={7}
                   previewPosition="none"
                 />
